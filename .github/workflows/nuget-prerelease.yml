@@ -33,6 +33,14 @@ jobs:
         id: version
         run: |
           base=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
+          # The base must be a clean release version (e.g. 1.2.3) — the workflow appends
+          # `-rc.{count}` to form the prerelease. A base that already carries a prerelease
+          # tag or build metadata (e.g. 1.2.3-rc.5, 1.2.3+abc) silently produces a wrong
+          # package version once NuGet normalizes it, so reject it here.
+          if ! [[ "$base" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::<Version> in Directory.Build.props must be a clean release version like 1.2.3 (no prerelease tag or build metadata); found '${base}'"
+            exit 1
+          fi
           # Block candidates for a version that has already been released.
           # Exact match only: v1.0.0 existing blocks 1.0.0-rc.N, but an unrelated
           # higher release (e.g. v1.0.1) does not block 1.0.0-rc.N.
