@@ -1,5 +1,5 @@
 name: nuget-release-nugetorg
-description: Pack the repo's packages and publish a stable release to nuget.org via Trusted Publishing (OIDC).
+description: Test, pack, and publish a stable release to nuget.org via Trusted Publishing (OIDC), then create a GitHub Release.
 
 # Composite action: all steps run in the CALLER's job, so the OIDC job_workflow_ref
 # claim is the caller's workflow - which is what nuget.org's Trusted Publishing policy
@@ -7,7 +7,7 @@ description: Pack the repo's packages and publish a stable release to nuget.org 
 # and the push in the same job also avoids the masked-output redaction that breaks the
 # reusable-workflow approach.
 #
-# The calling job must grant: contents: read, packages: read, id-token: write.
+# The calling job must grant: contents: write (GitHub Release), packages: read, id-token: write.
 
 inputs:
   nuget-user:
@@ -26,53 +26,15 @@ runs:
       with:
         fetch-depth: 0   # need history + branches for the production ancestor check
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+    - name: Validate release tag
+      id: guards
+      uses: RushuiGuan/devops/.github/actions/release-guards@v1
+
+    - name: Build, test, and pack
+      uses: RushuiGuan/devops/.github/actions/build-pack@v1
       with:
+        version: ${{ steps.guards.outputs.version }}
         dotnet-version: ${{ inputs.dotnet-version }}
-
-    - name: Configure GitHub Packages source
-      shell: bash
-      # Restore may need the GitHub feed to resolve dependencies even when
-      # publishing the package itself to nuget.org. github.token is available in
-      # composite actions (secrets context is not).
-      run: dotnet nuget add source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" --name github --username unused --password ${{ github.token }} --store-password-in-clear-text
-
-    - name: Guard - tag version matches Directory.Build.props
-      id: version
-      shell: bash
-      run: |
-        tag="${GITHUB_REF_NAME#v}"
-        base=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
-        if [ "$tag" != "$base" ]; then
-          echo "::error::tag version '$tag' does not match Directory.Build.props <Version> '$base'"
-          exit 1
-        fi
-        echo "version=$base" >> "$GITHUB_OUTPUT"
-
-    - name: Guard - tag is on the production branch
-      shell: bash
-      run: |
-        git fetch origin production
-        if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/production; then
-          echo "::error::tag $GITHUB_REF_NAME ($GITHUB_SHA) is not on the production branch"
-          exit 1
-        fi
-
-    - name: Pack
-      shell: bash
-      run: |
-        # Pack every project listed under the `# packages` section of .projects.
-        # Each entry is a folder name containing a like-named .csproj.
-        projects=$(awk '{sub(/\r$/,"")} /^# packages$/{f=1;next} /^#/{f=0} f && NF {print $1}' .projects)
-        if [ -z "$projects" ]; then
-          echo "::error::no packages found under '# packages' in .projects"
-          exit 1
-        fi
-        for p in $projects; do
-          echo "Packing $p"
-          dotnet pack "$p/$p.csproj" -c Release -p:Version=${{ steps.version.outputs.version }} -o out
-        done
 
     - name: NuGet login (OIDC -> short-lived API key)
       uses: NuGet/login@v1

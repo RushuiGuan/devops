@@ -1,0 +1,61 @@
+name: build-pack
+description: Configure the GitHub Packages feed, run the repo's tests, and pack its packages to ./out.
+
+# Shared by the nuget publish paths (prerelease / github-release / nugetorg).
+# Assumes the caller has already checked out the repo. Reads `# tests` and
+# `# packages` from the caller's .projects. A failing test stops the run.
+
+inputs:
+  version:
+    description: Version to stamp on the packages
+    required: true
+  dotnet-version:
+    description: .NET SDK version to set up
+    required: false
+    default: '10.0.x'
+
+runs:
+  using: composite
+  steps:
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ inputs.dotnet-version }}
+
+    - name: Configure GitHub Packages source
+      shell: bash
+      # Lets restore pull dependencies from this owner's GitHub Packages feed.
+      # github.token is available in composite actions (secrets context is not).
+      run: dotnet nuget add source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" --name github --username unused --password ${{ github.token }} --store-password-in-clear-text
+
+    - name: Test
+      shell: bash
+      run: |
+        # Run every project listed under the `# tests` section of .projects.
+        # A failing test fails this step (bash -e), stopping before pack/publish.
+        tests=$(awk '{sub(/\r$/,"")} /^# tests$/{f=1;next} /^#/{f=0} f && NF {print $1}' .projects)
+        if [ -z "$tests" ]; then
+          echo "No tests listed under '# tests' in .projects; skipping."
+          exit 0
+        fi
+        for t in $tests; do
+          echo "Testing $t"
+          dotnet test "$t/$t.csproj" -c Release
+        done
+
+    - name: Pack
+      shell: bash
+      run: |
+        # Pack every project listed under the `# packages` section of .projects.
+        # Each entry is a folder name containing a like-named .csproj.
+        projects=$(awk '{sub(/\r$/,"")} /^# packages$/{f=1;next} /^#/{f=0} f && NF {print $1}' .projects)
+        if [ -z "$projects" ]; then
+          echo "::error::no packages found under '# packages' in .projects"
+          exit 1
+        fi
+        for p in $projects; do
+          echo "Packing $p"
+          # -warnaserror promotes all warnings (compiler + NuGet pack NU5xxx) to errors,
+          # except NU1901-NU1904 (dependency vulnerability audit) which stay warnings.
+          dotnet pack "$p/$p.csproj" -c Release -p:Version=${{ inputs.version }} -o out -warnaserror -warnnotaserror:"NU1901;NU1902;NU1903;NU1904"
+        done

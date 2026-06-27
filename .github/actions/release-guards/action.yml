@@ -1,0 +1,34 @@
+name: release-guards
+description: Validate a release tag - its version matches Directory.Build.props and the tagged commit is on the production branch.
+
+# Run after checkout (with fetch-depth: 0). Fails the run if either guard fails.
+# Outputs the validated version (tag without the leading 'v') for downstream steps.
+
+outputs:
+  version:
+    description: The validated version (the tag without its leading 'v')
+    value: ${{ steps.version.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Guard - tag version matches Directory.Build.props
+      id: version
+      shell: bash
+      run: |
+        tag="${GITHUB_REF_NAME#v}"
+        base=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
+        if [ "$tag" != "$base" ]; then
+          echo "::error::tag version '$tag' does not match Directory.Build.props <Version> '$base'"
+          exit 1
+        fi
+        echo "version=$base" >> "$GITHUB_OUTPUT"
+
+    - name: Guard - tag is on the production branch
+      shell: bash
+      run: |
+        git fetch origin production
+        if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/production; then
+          echo "::error::tag $GITHUB_REF_NAME ($GITHUB_SHA) is not on the production branch"
+          exit 1
+        fi
