@@ -1,0 +1,76 @@
+name: github-release
+
+# Reusable workflow: publish a stable release to GitHub Packages.
+# Intended to be called on a `vX.Y.Z` tag push. Publishes the clean
+# {Version} for every project under the `# packages` section of the
+# caller's .projects file, guarded by two checks.
+on:
+  workflow_call:
+    inputs:
+      dotnet-version:
+        description: .NET SDK version to set up
+        type: string
+        required: false
+        default: '10.0.x'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need history + branches for the production ancestor check
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ inputs.dotnet-version }}
+
+      - name: Configure GitHub Packages source
+        # Lets restore pull dependencies from this owner's GitHub Packages feed
+        # using the built-in GITHUB_TOKEN - no committed nuget.config, no PAT.
+        run: dotnet nuget add source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" --name github --username unused --password ${{ secrets.GITHUB_TOKEN }} --store-password-in-clear-text
+
+      - name: Guard - tag version matches Directory.Build.props
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          base=$(grep -oP '(?<=<Version>)[^<]+' Directory.Build.props)
+          if [ "$tag" != "$base" ]; then
+            echo "::error::tag version '$tag' does not match Directory.Build.props <Version> '$base'"
+            exit 1
+          fi
+          echo "version=$base" >> "$GITHUB_OUTPUT"
+
+      - name: Guard - tag is on the production branch
+        run: |
+          git fetch origin production
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/production; then
+            echo "::error::tag $GITHUB_REF_NAME ($GITHUB_SHA) is not on the production branch"
+            exit 1
+          fi
+
+      - name: Pack
+        run: |
+          # Pack every project listed under the `# packages` section of .projects.
+          # Each entry is a folder name containing a like-named .csproj.
+          projects=$(awk '{sub(/\r$/,"")} /^# packages$/{f=1;next} /^#/{f=0} f && NF {print $1}' .projects)
+          if [ -z "$projects" ]; then
+            echo "::error::no packages found under '# packages' in .projects"
+            exit 1
+          fi
+          for p in $projects; do
+            echo "Packing $p"
+            dotnet pack "$p/$p.csproj" -c Release -p:Version=${{ steps.version.outputs.version }} -o out
+          done
+
+      - name: Push to GitHub Packages
+        run: |
+          for pkg in out/*.nupkg; do
+            dotnet nuget push "$pkg" --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" --api-key ${{ secrets.GITHUB_TOKEN }} --skip-duplicate
+          done
