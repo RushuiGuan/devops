@@ -88,3 +88,15 @@ runs:
         for pkg in out/*.nupkg; do
           dotnet nuget push "$pkg" --source "https://api.nuget.org/v3/index.json" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --skip-duplicate
         done
+
+    - name: Create GitHub Release
+      shell: bash
+      # Requires contents: write on the calling job. Idempotent across re-runs.
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+          echo "Release $GITHUB_REF_NAME already exists; skipping."
+        else
+          gh release create "$GITHUB_REF_NAME" --generate-notes --verify-tag
+        fi

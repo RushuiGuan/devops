@@ -15,7 +15,7 @@ Shared GitHub Actions building blocks for `RushuiGuan` repositories.
 
 | Action | Used on | Publishes |
 |---|---|---|
-| `nuget-release-nugetorg` | `vX.Y.Z` tag on `production` | `{Version}` → nuget.org (public packages only) |
+| `nuget-release-nugetorg` | `vX.Y.Z` tag on `production` | `{Version}` → nuget.org, then a GitHub Release from the tag (public packages only) |
 
 All three read the package list from the **caller's** `.projects` file (the
 `# packages` section) and the version from the caller's `Directory.Build.props`
@@ -80,7 +80,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write          # create the GitHub Release
       packages: read
       id-token: write          # required for Trusted Publishing OIDC
     steps:
