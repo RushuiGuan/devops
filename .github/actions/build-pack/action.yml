@@ -24,9 +24,16 @@ runs:
 
     - name: Configure GitHub Packages source
       shell: bash
-      # Lets restore pull dependencies from this owner's GitHub Packages feed.
+      # Always add the owner's own GitHub Packages feed. When the owner is not rushuiguan, also add
+      # rushuiguan's feed (named "framework") so the shared framework packages can be restored —
+      # skipped when the owner is rushuiguan to avoid adding the same feed twice.
       # github.token is available in composite actions (secrets context is not).
-      run: dotnet nuget add source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" --name github --username unused --password ${{ github.token }} --store-password-in-clear-text
+      run: |
+        owner="${{ github.repository_owner }}"
+        dotnet nuget add source "https://nuget.pkg.github.com/${owner}/index.json" --name github --username unused --password ${{ github.token }} --store-password-in-clear-text
+        if [ "${owner,,}" != "rushuiguan" ]; then
+          dotnet nuget add source "https://nuget.pkg.github.com/rushuiguan/index.json" --name framework --username unused --password ${{ github.token }} --store-password-in-clear-text
+        fi
 
     - name: Test
       shell: bash
