@@ -6,9 +6,9 @@ Reusable GitHub Actions workflows shared across `RushuiGuan` repositories.
 
 | Workflow | Trigger (in caller) | Publishes |
 |---|---|---|
-| `prerelease.yml` | push to `rc` | `{Version}-rc.{commit count}` → GitHub Packages |
-| `github-release.yml` | `vX.Y.Z` tag on `production` | `{Version}` → GitHub Packages |
-| `nuget-release.yml` | `vX.Y.Z` tag on `production` | `{Version}` → nuget.org (public packages only) |
+| `nuget-prerelease.yml` | push to `rc` | `{Version}-rc.{commit count}` → GitHub Packages |
+| `nuget-release-github.yml` | `vX.Y.Z` tag on `production` | `{Version}` → GitHub Packages |
+| `nuget-release-nugetorg.yml` | `vX.Y.Z` tag on `production` | `{Version}` → nuget.org (public packages only) |
 
 All three read the package list from the **caller's** `.projects` file
 (the `# packages` section) and the version from the caller's
@@ -26,7 +26,7 @@ out, so these files come from the calling repository, not from `devops`.
 | Secret | Required by | Notes |
 |---|---|---|
 | `GITHUB_TOKEN` | all three | Built-in; provided automatically via `secrets: inherit`. |
-| `NUGET_API_KEY` | `nuget-release.yml` | Must exist in the **calling** repo. |
+| `NUGET_API_KEY` | `nuget-release-nugetorg.yml` | Must exist in the **calling** repo. |
 
 ## Using it from another repo
 
@@ -51,19 +51,19 @@ permissions:
 jobs:
   prerelease:
     if: github.ref == 'refs/heads/rc'
-    uses: RushuiGuan/devops/.github/workflows/prerelease.yml@v1
+    uses: RushuiGuan/devops/.github/workflows/nuget-prerelease.yml@v1
     secrets: inherit
 
   github-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    uses: RushuiGuan/devops/.github/workflows/github-release.yml@v1
+    uses: RushuiGuan/devops/.github/workflows/nuget-release-github.yml@v1
     secrets: inherit
 
   # Public packages only. Omit this job in private repos so nothing
   # can leak to the public feed.
   nuget-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    uses: RushuiGuan/devops/.github/workflows/nuget-release.yml@v1
+    uses: RushuiGuan/devops/.github/workflows/nuget-release-nugetorg.yml@v1
     secrets: inherit
 ```
 

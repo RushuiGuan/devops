@@ -1,4 +1,4 @@
-name: nuget-release
+name: nuget-release-nugetorg
 
 # Reusable workflow: publish a stable release to nuget.org.
 # Intended to be called on a `vX.Y.Z` tag push, ONLY for public packages.
