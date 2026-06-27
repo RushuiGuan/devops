@@ -2,16 +2,12 @@ name: nuget-release-nugetorg
 
 # Reusable workflow: publish a stable release to nuget.org.
 # Intended to be called on a `vX.Y.Z` tag push, ONLY for public packages.
-# Same guards as github-release. Uses nuget.org Trusted Publishing (OIDC) -
-# no NUGET_API_KEY secret.
+# Same guards as github-release.
 #
-# Trusted Publishing policy: NuGet matches the OIDC `job_workflow_ref` claim,
-# which for a reusable workflow is THIS file. Configure ONE policy on nuget.org:
-#   Repository Owner: <owner of this devops repo>
-#   Repository:       <this devops repo>
-#   Workflow File:    nuget-release-nugetorg.yml
-# That single policy then covers every repo that calls this workflow.
-# The CALLER must grant `id-token: write` for the job_workflow_ref claim to be issued.
+# This workflow does NOT do the OIDC exchange. It receives a ready-to-use api key
+# via the `nuget-api-key` input - either a legacy nuget.org key, or a short-lived
+# key the CALLER minted with NuGet/login (Trusted Publishing). The login must run
+# in the caller so the OIDC job_workflow_ref claim matches the caller's policy.
 on:
   workflow_call:
     inputs:
@@ -20,15 +16,14 @@ on:
         type: string
         required: false
         default: '10.0.x'
-      nuget-user:
-        description: nuget.org account/profile name that owns the Trusted Publishing policy
+      nuget-api-key:
+        description: nuget api key from trusted publishing or just a legacy api key
         type: string
         required: true
 
 permissions:
   contents: read
   packages: read    # so restore can resolve dependencies from the GitHub feed
-  id-token: write   # request the GitHub OIDC token for Trusted Publishing
 
 jobs:
   release:
@@ -82,17 +77,9 @@ jobs:
             dotnet pack "$p/$p.csproj" -c Release -p:Version=${{ steps.version.outputs.version }} -o out
           done
 
-      - name: NuGet login (OIDC -> short-lived API key)
-        # Exchanges the GitHub OIDC token for a temporary nuget.org API key (valid 1h).
-        # Run immediately before push so the key doesn't expire.
-        uses: NuGet/login@v1
-        id: login
-        with:
-          user: ${{ inputs.nuget-user }}
-
       - name: Push to nuget.org
         run: |
           # Pushing a .nupkg also pushes its co-located .snupkg symbols to nuget.org.
           for pkg in out/*.nupkg; do
-            dotnet nuget push "$pkg" --source "https://api.nuget.org/v3/index.json" --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --skip-duplicate
+            dotnet nuget push "$pkg" --source "https://api.nuget.org/v3/index.json" --api-key ${{ inputs.nuget-api-key }} --skip-duplicate
           done
