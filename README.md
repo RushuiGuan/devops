@@ -20,13 +20,13 @@ out, so these files come from the calling repository, not from `devops`.
 | Input | Default | Applies to |
 |---|---|---|
 | `dotnet-version` | `10.0.x` | all three |
+| `nuget-user` | *(required)* | `nuget-release-nugetorg.yml` — nuget.org profile name owning the Trusted Publishing policy |
 
 ### Secrets
 
-| Secret | Required by | Notes |
-|---|---|---|
-| `GITHUB_TOKEN` | all three | Built-in; provided automatically via `secrets: inherit`. |
-| `NUGET_API_KEY` | `nuget-release-nugetorg.yml` | Must exist in the **calling** repo. |
+No secrets needed. `GITHUB_TOKEN` is provided automatically to reusable
+workflows, and nuget.org publishing uses **Trusted Publishing (OIDC)** rather
+than a `NUGET_API_KEY` — the caller just grants `id-token: write`.
 
 ## Using it from another repo
 
@@ -47,6 +47,7 @@ on:
 permissions:
   contents: read
   packages: write   # a reusable workflow's token cannot exceed the caller's
+  id-token: write   # required for nuget-release-nugetorg (Trusted Publishing OIDC)
 
 jobs:
   prerelease:
@@ -64,8 +65,13 @@ jobs:
   nuget-release:
     if: startsWith(github.ref, 'refs/tags/v')
     uses: RushuiGuan/devops/.github/workflows/nuget-release-nugetorg.yml@v1
-    secrets: inherit
+    with:
+      nuget-user: RushuiGuan   # your nuget.org profile name
 ```
+
+> Use `nuget-release-github` **or** `nuget-release-nugetorg` (or both) per repo —
+> public packages typically use nugetorg only. A private repo should use neither
+> a public target nor `id-token: write`.
 
 ### Notes
 
@@ -81,3 +87,15 @@ jobs:
   simply omits it.
 - Symbol packages (`.snupkg`) are not pushed to GitHub Packages (unsupported)
   but are pushed to nuget.org alongside their `.nupkg`.
+- **nuget.org Trusted Publishing setup.** nuget.org matches the OIDC
+  `job_workflow_ref` claim, which — for a reusable workflow — points at THIS
+  repo's workflow, not the caller's. So create **one** policy on nuget.org
+  (your username → Trusted Publishing) and it covers every caller:
+  - **Repository Owner:** `RushuiGuan`
+  - **Repository:** `devops`
+  - **Workflow File:** `nuget-release-nugetorg.yml`
+  - **Environment:** *(leave empty)*
+
+  The caller must grant `id-token: write` (above) or the `job_workflow_ref`
+  claim is omitted and the token exchange fails with `401: No matching trust
+  policy`.
