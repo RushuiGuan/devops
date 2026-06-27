@@ -1,12 +1,27 @@
 name: docfx
-# Trigger the action on push to main
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+# Reusable workflow: build a docfx site from the caller's repo and deploy it to
+# GitHub Pages. The caller's repo is checked out, so docfx_project comes from there.
+# The caller must grant: actions: read, pages: write, id-token: write.
+on:
+  workflow_call:
+    inputs:
+      dotnet-version:
+        description: .NET SDK version to set up
+        type: string
+        required: false
+        default: '8.x'
+      docfx-config:
+        description: Path to the docfx config file
+        type: string
+        required: false
+        default: 'docfx_project/docfx.json'
+      site-path:
+        description: Path to the generated site to publish
+        type: string
+        required: false
+        default: 'docfx_project/_site'
+
 permissions:
   actions: read
   pages: write
@@ -17,7 +32,7 @@ permissions:
 concurrency:
   group: "pages"
   cancel-in-progress: false
-  
+
 jobs:
   publish-docs:
     environment:
@@ -26,20 +41,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
     - name: Dotnet Setup
-      uses: actions/setup-dotnet@v3
+      uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 8.x
+        dotnet-version: ${{ inputs.dotnet-version }}
 
     - run: dotnet tool update -g docfx
-    - run: docfx docfx_project/docfx.json
+    - run: docfx ${{ inputs.docfx-config }}
 
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v3
       with:
-        # Upload entire repository
-        path: 'docfx_project/_site'
+        path: ${{ inputs.site-path }}
     - name: Deploy to GitHub Pages
       id: deployment
       uses: actions/deploy-pages@v4
